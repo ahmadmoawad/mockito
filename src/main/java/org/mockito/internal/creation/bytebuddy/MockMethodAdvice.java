@@ -15,7 +15,8 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Map;
 import java.util.concurrent.Callable;
-import java.util.function.BooleanSupplier;
+import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 
 import net.bytebuddy.ClassFileVersion;
 import net.bytebuddy.asm.Advice;
@@ -59,15 +60,18 @@ public class MockMethodAdvice extends MockMethodDispatcher {
     private final WeakConcurrentMap<Class<?>, SoftReference<MethodGraph>> graphs =
             new WeakConcurrentMap.WithInlinedExpunction<Class<?>, SoftReference<MethodGraph>>();
 
-    private final BooleanSupplier isMockConstruction;
+    private final Predicate<Class<?>> isMockConstruction;
+    private final BiConsumer<Class<?>, Object> onConstruction;
 
     public MockMethodAdvice(
             WeakConcurrentMap<Object, MockMethodInterceptor> interceptors,
             DetachedThreadLocal<Map<Class<?>, MockMethodInterceptor>> mockedStatics,
             String identifier,
-            BooleanSupplier isMockConstruction) {
+            Predicate<Class<?>> isMockConstruction,
+            BiConsumer<Class<?>, Object> onConstruction) {
         this.interceptors = interceptors;
         this.mockedStatics = mockedStatics;
+        this.onConstruction = onConstruction;
         this.identifier = identifier;
         this.isMockConstruction = isMockConstruction;
     }
@@ -162,6 +166,11 @@ public class MockMethodAdvice extends MockMethodDispatcher {
     }
 
     @Override
+    public void handleConstruction(Class<?> type, Object object) {
+        onConstruction.accept(type, object);
+    }
+
+    @Override
     public boolean isMock(Object instance) {
         // We need to exclude 'interceptors.target' explicitly to avoid a recursive check on whether
         // the map is a mock object what requires reading from the map.
@@ -202,7 +211,7 @@ public class MockMethodAdvice extends MockMethodDispatcher {
 
     @Override
     public boolean isConstructorMock(Class<?> type) {
-        return isMockConstruction.getAsBoolean();
+        return isMockConstruction.test(type);
     }
 
     private static class RealMethodCall implements RealMethod {
@@ -408,10 +417,12 @@ public class MockMethodAdvice extends MockMethodDispatcher {
                         public void visitCode() {
                             super.visitCode();
                             /*
-                             * The byte code that is added to the start of the method is roughly equivalent to:
+                             * The byte code that is added to the start of the method is roughly equivalent to
+                             * the following byte code for a hypothetical constructor of class Current:
                              *
                              * if (MockMethodDispatcher.isConstructorMock(<identifier>, Current.class) {
                              *   super(<default arguments>);
+                             *   MockMethodDispatcher.handleConstruction(Current.class, this);
                              *   return;
                              * }
                              *
@@ -470,6 +481,33 @@ public class MockMethodAdvice extends MockMethodDispatcher {
                                     selected.getDeclaringType().getInternalName(),
                                     selected.getInternalName(),
                                     selected.getDescriptor(),
+                                    false);
+                            super.visitLdcInsn(identifier);
+                            if (implementationContext
+                                    .getClassFileVersion()
+                                    .isAtLeast(ClassFileVersion.JAVA_V5)) {
+                                super.visitLdcInsn(Type.getType(instrumentedType.getDescriptor()));
+                            } else {
+                                super.visitLdcInsn(instrumentedType.getName());
+                                super.visitMethodInsn(
+                                        Opcodes.INVOKESTATIC,
+                                        Type.getInternalName(Class.class),
+                                        "forName",
+                                        Type.getMethodDescriptor(
+                                                Type.getType(Class.class),
+                                                Type.getType(String.class)),
+                                        false);
+                            }
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitMethodInsn(
+                                    Opcodes.INVOKESTATIC,
+                                    Type.getInternalName(MockMethodDispatcher.class),
+                                    "handleConstruction",
+                                    Type.getMethodDescriptor(
+                                            Type.VOID_TYPE,
+                                            Type.getType(String.class),
+                                            Type.getType(Class.class),
+                                            Type.getType(Object.class)),
                                     false);
                             super.visitInsn(Opcodes.RETURN);
                             super.visitLabel(label);

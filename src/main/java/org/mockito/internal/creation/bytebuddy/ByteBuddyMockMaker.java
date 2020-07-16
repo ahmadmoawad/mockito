@@ -4,7 +4,10 @@
  */
 package org.mockito.internal.creation.bytebuddy;
 
+import java.util.function.IntFunction;
+
 import org.mockito.Incubating;
+import org.mockito.MockedConstruction;
 import org.mockito.invocation.MockHandler;
 import org.mockito.mock.MockCreationSettings;
 
@@ -50,5 +53,15 @@ public class ByteBuddyMockMaker implements ClassCreatingMockMaker {
     public <T> StaticMockControl<T> createStaticMock(
             Class<T> type, MockCreationSettings<T> settings, MockHandler handler) {
         return defaultByteBuddyMockMaker.createStaticMock(type, settings, handler);
+    }
+
+    @Override
+    public <T> ConstructionMockControl<T> createConstructionMock(
+            Class<T> type,
+            IntFunction<MockCreationSettings<T>> settings,
+            IntFunction<MockHandler<T>> handler,
+            MockedConstruction.Preparation<T> preparation) {
+        return defaultByteBuddyMockMaker.createConstructionMock(
+                type, settings, handler, preparation);
     }
 }

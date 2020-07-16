@@ -4,7 +4,11 @@
  */
 package org.mockito.plugins;
 
+import java.util.List;
+import java.util.function.IntFunction;
+
 import org.mockito.Incubating;
+import org.mockito.MockedConstruction;
 import org.mockito.exceptions.base.MockitoException;
 import org.mockito.invocation.MockHandler;
 import org.mockito.mock.MockCreationSettings;
@@ -142,6 +146,39 @@ public interface MockMaker {
     }
 
     /**
+     * If you want to provide your own implementation of {@code MockMaker} this method should:
+     * <ul>
+     *     <li>Intercept all constructions of the specified type in the current thread</li>
+     *     <li>Only intercept the construction after being enabled.</li>
+     *     <li>Stops the interception when disabled.</li>
+     * </ul>
+     *
+     * @param settings Factory for mock creation settings like type to mock, extra interfaces and so on.
+     * @param handler Factory for settings. See {@link org.mockito.invocation.MockHandler}.
+     *                <b>Do not</b> provide your own implementation at this time. Make sure your implementation of
+     *                {@link #getHandler(Object)} will return this instance.
+     * @param <T> Type of the mock to return, actually the <code>settings.getTypeToMock</code>.
+     * @return A control for the mocked construction.
+     * @since 3.5.0
+     */
+    @Incubating
+    default <T> ConstructionMockControl<T> createConstructionMock(
+            Class<T> type,
+            IntFunction<MockCreationSettings<T>> settings,
+            IntFunction<MockHandler<T>> handler,
+            MockedConstruction.Preparation<T> preparation) {
+        throw new MockitoException(
+                join(
+                        "The used MockMaker "
+                                + getClass().getSimpleName()
+                                + " does not support the creation of construction mocks",
+                        "",
+                        "Mockito's inline mock maker supports construction mocks based on the Instrumentation API.",
+                        "You can simply enable this mock mode, by placing the 'mockito-inline' artifact where you are currently using 'mockito-core'.",
+                        "Note that Mockito's inline mock maker is not supported on Android."));
+    }
+
+    /**
      * Carries the mockability information
      *
      * @since 2.1.0
@@ -167,5 +204,17 @@ public interface MockMaker {
         void enable();
 
         void disable();
+    }
+
+    @Incubating
+    interface ConstructionMockControl<T> {
+
+        Class<T> getType();
+
+        void enable();
+
+        void disable();
+
+        List<T> getMocks();
     }
 }

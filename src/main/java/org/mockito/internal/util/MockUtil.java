@@ -4,8 +4,11 @@
  */
 package org.mockito.internal.util;
 
+import java.util.function.IntFunction;
+
 import static org.mockito.internal.handler.MockHandlerFactory.createMockHandler;
 
+import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 import org.mockito.exceptions.misusing.NotAMockException;
 import org.mockito.internal.configuration.plugins.Plugins;
@@ -107,5 +110,13 @@ public class MockUtil {
             Class<T> type, MockCreationSettings<T> settings) {
         MockHandler<T> handler = createMockHandler(settings);
         return mockMaker.createStaticMock(type, settings, handler);
+    }
+
+    public static <T> MockMaker.ConstructionMockControl<T> createConstructionMock(
+            Class<T> type,
+            IntFunction<MockCreationSettings<T>> settings,
+            MockedConstruction.Preparation preparation) {
+        IntFunction<MockHandler<T>> handler = index -> createMockHandler(settings.apply(index));
+        return mockMaker.createConstructionMock(type, settings, handler, preparation);
     }
 }

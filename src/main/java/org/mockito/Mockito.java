@@ -4,6 +4,9 @@
  */
 package org.mockito;
 
+import java.util.function.Consumer;
+import java.util.function.IntFunction;
+
 import org.mockito.exceptions.misusing.PotentialStubbingProblem;
 import org.mockito.exceptions.misusing.UnnecessaryStubbingException;
 import org.mockito.internal.InternalMockHandler;
@@ -106,6 +109,7 @@ import org.mockito.verification.VerificationWithTimeout;
  *      <a href="#46">46. New <code>Mockito.lenient()</code> and <code>MockSettings.lenient()</code> methods (Since 2.20.0)</a><br/>
  *      <a href="#47">47. New API for clearing mock state in inline mocking (Since 2.25.0)</a><br/>
  *      <a href="#48">48. New API for mocking static methods (Since 3.4.0)</a><br/>
+ *      <a href="#49">49. New API for mocking object construction (Since 3.5.0)</a><br/>
  * </b>
  *
  * <h3 id="0">0. <a class="meaningful_link" href="#mockito2" name="mockito2">Migrating to Mockito 2</a></h3>
@@ -1565,8 +1569,31 @@ import org.mockito.verification.VerificationWithTimeout;
  * assertEquals("foo", Foo.method());
  * </code></pre>
  *
- * Due to the defined scope of the static mock, it returns to its original behvior once the scope is released. To define mock
+ * Due to the defined scope of the static mock, it returns to its original behavior once the scope is released. To define mock
  * behavior and to verify static method invocations, use the <code>MockedStatic</code> that is returned.
+ * <p>
+ *
+ * <h3 id="49">49. <a class="meaningful_link" href="#mocked_construction" name="mocked_construction">Mocking object construction</a> (since 3.5.0)</h3>
+ *
+ * When using the <a href="#0.2">inline mock maker</a>, it is possible to generate mocks on constructor invocations within the current
+ * thread and a user-defined scope. This way, Mockito assures that concurrently and sequentially running tests do not interfere.
+ *
+ * To make sure a constructor mocks remain temporary, it is recommended to define the scope within a try-with-resources construct.
+ * In the following example, the <code>Foo</code> type's construction would generate a mock:
+ *
+ * <pre class="code"><code class="java">
+ * assertEquals("foo", Foo.method());
+ * try (MockedConstruction<Foo> mocked = mockConstruction(Foo.class)) {
+ * Foo foo = new Foo();
+ * when(foo.method()).thenReturn("bar");
+ * assertEquals("bar", foo.method());
+ * verify(foo).method();
+ * }
+ * assertEquals("foo", foo.method());
+ * </code></pre>
+ *
+ * Due to the defined scope of the mocked construction, object construction returns to its original behavior once the scope is
+ * released. To define mock behavior and to verify static method invocations, use the <code>MockedConstruction</code> that is returned.
  * <p>
  */
 @SuppressWarnings("unchecked")
@@ -2142,6 +2169,152 @@ public class Mockito extends ArgumentMatchers {
     @CheckReturnValue
     public static <T> MockedStatic<T> mockStatic(Class<T> classToMock, MockSettings mockSettings) {
         return MOCKITO_CORE.mockStatic(classToMock, mockSettings);
+    }
+
+    /**
+     * Creates a thread-local mock controller for all constructions of the given class.
+     * The returned object's {@link MockedConstruction#close()} method must be called upon completing the
+     * test or the mock will remain active on the current thread.
+     * <p>
+     * See examples in javadoc for {@link Mockito} class
+     *
+     * @param classToMock non-abstract class of which constructions should be mocked.
+     * @return mock controller
+     */
+    @Incubating
+    @CheckReturnValue
+    public static <T> MockedConstruction<T> mockConstruction(Class<T> classToMock) {
+        return mockConstruction(classToMock, index -> withSettings(), (mock, index) -> {});
+    }
+
+    /**
+     * Creates a thread-local mock controller for all constructions of the given class.
+     * The returned object's {@link MockedConstruction#close()} method must be called upon completing the
+     * test or the mock will remain active on the current thread.
+     * <p>
+     * See examples in javadoc for {@link Mockito} class
+     *
+     * @param classToMock non-abstract class of which constructions should be mocked.
+     * @param preparation a callback to prepare a mock's methods after its instantiation.
+     * @return mock controller
+     */
+    @Incubating
+    @CheckReturnValue
+    public static <T> MockedConstruction<T> mockConstruction(
+            Class<T> classToMock, Consumer<T> preparation) {
+        return mockConstruction(classToMock, withSettings(), preparation);
+    }
+
+    /**
+     * Creates a thread-local mock controller for all constructions of the given class.
+     * The returned object's {@link MockedConstruction#close()} method must be called upon completing the
+     * test or the mock will remain active on the current thread.
+     * <p>
+     * See examples in javadoc for {@link Mockito} class
+     *
+     * @param classToMock non-abstract class of which constructions should be mocked.
+     * @param defaultAnswer the default answer for the first created mock.
+     * @param additionalAnswers the default answer for all additional mocks. For any access mocks, the
+     *                         last answer is used. If this array is empty, the {@code defaultAnswer} is used.
+     * @return mock controller
+     */
+    @Incubating
+    @CheckReturnValue
+    public static <T> MockedConstruction<T> mockConstructionWithAnswer(
+            Class<T> classToMock, Answer defaultAnswer, Answer... additionalAnswers) {
+        return mockConstruction(
+                classToMock,
+                index -> {
+                    if (index == 0 || additionalAnswers.length == 0) {
+                        return withSettings().defaultAnswer(defaultAnswer);
+                    } else if (index > additionalAnswers.length) {
+                        return withSettings()
+                                .defaultAnswer(additionalAnswers[additionalAnswers.length - 1]);
+                    } else {
+                        return withSettings().defaultAnswer(additionalAnswers[index - 1]);
+                    }
+                },
+                (mock, index) -> {});
+    }
+
+    /**
+     * Creates a thread-local mock controller for all constructions of the given class.
+     * The returned object's {@link MockedConstruction#close()} method must be called upon completing the
+     * test or the mock will remain active on the current thread.
+     * <p>
+     * See examples in javadoc for {@link Mockito} class
+     *
+     * @param classToMock non-abstract class of which constructions should be mocked.
+     * @param mockSettings the mock settings to use.
+     * @return mock controller
+     */
+    @Incubating
+    @CheckReturnValue
+    public static <T> MockedConstruction<T> mockConstruction(
+            Class<T> classToMock, MockSettings mockSettings) {
+        return mockConstruction(classToMock, mockSettings, (mock, index) -> {});
+    }
+
+    /**
+     * Creates a thread-local mock controller for all constructions of the given class.
+     * The returned object's {@link MockedConstruction#close()} method must be called upon completing the
+     * test or the mock will remain active on the current thread.
+     * <p>
+     * See examples in javadoc for {@link Mockito} class
+     *
+     * @param classToMock non-abstract class of which constructions should be mocked.
+     * @param mockSettings the settings to use.
+     * @param preparation a callback to prepare a mock's methods after its instantiation.
+     * @return mock controller
+     */
+    @Incubating
+    @CheckReturnValue
+    public static <T> MockedConstruction<T> mockConstruction(
+            Class<T> classToMock, MockSettings mockSettings, Consumer<T> preparation) {
+        return mockConstruction(
+                classToMock, mockSettings, (mock, index) -> preparation.accept(mock));
+    }
+
+    /**
+     * Creates a thread-local mock controller for all constructions of the given class.
+     * The returned object's {@link MockedConstruction#close()} method must be called upon completing the
+     * test or the mock will remain active on the current thread.
+     * <p>
+     * See examples in javadoc for {@link Mockito} class
+     *
+     * @param classToMock non-abstract class of which constructions should be mocked.
+     * @param mockSettings the settings to use.
+     * @param preparation a callback to prepare a mock's methods after its instantiation.
+     * @return mock controller
+     */
+    @Incubating
+    @CheckReturnValue
+    public static <T> MockedConstruction<T> mockConstruction(
+            Class<T> classToMock,
+            MockSettings mockSettings,
+            MockedConstruction.Preparation<T> preparation) {
+        return mockConstruction(classToMock, index -> mockSettings, preparation);
+    }
+
+    /**
+     * Creates a thread-local mock controller for all constructions of the given class.
+     * The returned object's {@link MockedConstruction#close()} method must be called upon completing the
+     * test or the mock will remain active on the current thread.
+     * <p>
+     * See examples in javadoc for {@link Mockito} class
+     *
+     * @param classToMock non-abstract class of which constructions should be mocked.
+     * @param mockSettings a function to create settings to use.
+     * @param preparation a callback to prepare a mock's methods after its instantiation.
+     * @return mock controller
+     */
+    @Incubating
+    @CheckReturnValue
+    public static <T> MockedConstruction<T> mockConstruction(
+            Class<T> classToMock,
+            IntFunction<MockSettings> mockSettings,
+            MockedConstruction.Preparation<T> preparation) {
+        return MOCKITO_CORE.mockConstruction(classToMock, mockSettings, preparation);
     }
 
     /**

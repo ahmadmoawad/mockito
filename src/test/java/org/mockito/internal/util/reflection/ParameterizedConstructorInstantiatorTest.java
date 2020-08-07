@@ -98,7 +98,7 @@ public class ParameterizedConstructorInstantiatorTest {
                     .instantiate();
             fail();
         } catch (MockitoException e) {
-            assertThat(e.getMessage()).contains("argResolver").contains("incorrect types");
+            assertThat(e.getCause()).isInstanceOf(IllegalStateException.class);
         }
     }
 

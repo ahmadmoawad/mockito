@@ -142,24 +142,6 @@ public class LenientCopyToolTest extends TestBase {
     }
 
     @Test
-    public void shouldContinueEvenIfThereAreProblemsCopyingSingleFieldValue() throws Exception {
-        // given
-        tool.fieldCopier = mock(FieldCopier.class);
-
-        doNothing()
-                .doThrow(new IllegalAccessException())
-                .doNothing()
-                .when(tool.fieldCopier)
-                .copyValue(anyObject(), anyObject(), any(Field.class));
-
-        // when
-        tool.copyToMock(from, to);
-
-        // then
-        verify(tool.fieldCopier, atLeast(3)).copyValue(any(), any(), any(Field.class));
-    }
-
-    @Test
     public void shouldBeAbleToCopyFromRealObjectToRealObject() throws Exception {
 
         // given
